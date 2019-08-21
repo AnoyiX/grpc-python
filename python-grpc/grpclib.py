@@ -129,8 +129,9 @@ def grpc_service(server, serialize=3):
             request_json = json.dumps(request, ensure_ascii=False)
             response = grpc_client.connect(server).handle(
                 service_pb2.Request(request=bytes(request_json.encode('utf-8')), serialize=serialize))
-            if response.get('status') == 0:
-                return json.loads(response.response).get('result')
+            response_json = json.loads(response.response)
+            if response_json.get('status') == 0:
+                return response_json.get('result')
             raise Exception('grpc exception')
         return wrapper
     return decorator
