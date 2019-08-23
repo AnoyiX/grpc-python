@@ -5,6 +5,8 @@ import importlib
 import json
 import time
 import logging
+import sys
+import traceback
 from concurrent import futures
 
 import grpc
@@ -16,22 +18,13 @@ import service_pb2_grpc
 class Logger:
 
     def __init__(self):
-        # create logger
         logger = logging.getLogger('console')
         logger.setLevel(logging.DEBUG)
-
-        # create console handler and set level
         handler = logging.StreamHandler()
         handler.setLevel(logging.INFO)
-
-        # log format
-        _format = '%(asctime)s  %(levelname)s %(process)d --- [%(threadName)+15s] %(module)-20s : %(message)s'
-        formatter = logging.Formatter(_format, datefmt='%Y-%m-%d %H:%M:%S.000')
-
-        # set formatter
+        log_format = '%(asctime)s  %(levelname)s %(process)d --- [%(threadName)+15s] %(module)-20s : %(message)s'
+        formatter = logging.Formatter(log_format, datefmt='%Y-%m-%d %H:%M:%S.000')
         handler.setFormatter(formatter)
-
-        # set handler
         logger.addHandler(handler)
         self.logger = logger
 
@@ -48,21 +41,22 @@ class Server:
 class CommonService(service_pb2_grpc.CommonServiceServicer):
 
     def handle(self, request, context):
+        request_str = request.request.decode(encoding='utf-8')
+        grpc_request = json.loads(request_str)
+        response = {'status': 0}
+        module = importlib.import_module(grpc_request.get('clazz'))
+        invoke = getattr(module, grpc_request.get('method'))
+        args = grpc_request.get('args')
+        try:
+            response['result'] = invoke(*args)
+        except Exception as e:
+            exc_type, exc_value, exc_tb = sys.exc_info()
+            traceback.print_exception(exc_type, exc_value, exc_tb)
+            response['status'] = -1
+            response['message'] = e.args
+            response['excType'] = exc_type.__name__
 
-        # 将请求信息转为 json 格式
-        b = request.request
-        re = b.decode(encoding='utf-8')
-        _request = json.loads(re)
-        _response = {"status": 0}
-
-        # 反射加载模块
-        _module = importlib.import_module(_request['clazz'])
-        _method = getattr(_module, _request['method'])
-
-        # 执行方法
-        args = _request.get('args')
-        _response["result"] = _method(*args)
-        return service_pb2.Response(response=json.dumps(_response).encode(encoding="utf-8"))
+        return service_pb2.Response(response=json.dumps(response).encode(encoding="utf-8"))
 
 
 class GrpcClient:
@@ -112,6 +106,13 @@ class GrpcServer:
         self.max_workers = max_workers
 
 
+class GrpcException(Exception):
+
+    def __init__(self, exc_type, message):
+        self.exc_type = exc_type
+        self.message = message
+
+
 def grpc_service(server, serialize=3):
     """
     grpc service define
@@ -132,7 +133,10 @@ def grpc_service(server, serialize=3):
             response_json = json.loads(response.response)
             if response_json.get('status') == 0:
                 return response_json.get('result')
-            raise Exception('grpc exception')
+            elif response_json.get('status') == -1:
+                raise GrpcException(response_json.get('excType'), response_json.get('message'))
+            else:
+                raise Exception('unknown grpc exception')
         return wrapper
     return decorator
 

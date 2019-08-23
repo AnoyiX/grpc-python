@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='python-grpc',
-    version='0.0.3',
+    version='0.0.4',
     description='common grpc service',
     author='Anoyi',
     author_email='545544032@qq.com',
